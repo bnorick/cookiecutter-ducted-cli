@@ -1,0 +1,11 @@
+{
+  "project_name": "Ducted CLI",
+  "package_name": "{{ cookiecutter.project_name.lower().replace(' ', '-') }}",
+  "package": "{{ cookiecutter.package_name.replace('-', '_') }}",
+  "env_var_prefix": "{{ cookiecutter.package.upper() }}",
+  "project_short_description": "TODO: write me",
+  "full_name": "First Last",
+  "email": "you@example.com",
+  "version": "0.1.0",
+  "open_source_license": ["None", "MIT", "BSD-3-Clause", "ISC", "Apache-2.0", "GPL-3.0-only"]
+}

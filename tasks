@@ -1,0 +1,287 @@
+#!/usr/bin/env -S uvx --from=rust-just just --justfile
+
+just := "just --justfile " + justfile()
+
+replay_file := "resources/replay-example-cli.json"
+render_dir := "annex/update/example-cli"
+work_dir := "annex/update/example-cli-copy"
+diff_target_dir := "annex/update/example-cli-diff"
+recipe_dir := "{{ cookiecutter.package_name }}"
+
+@default:
+  {{ just }} --list
+
+# Render the current recipe and create a working copy for edits.
+refresh-render-and-copy replay=replay_file render=render_dir work=work_dir:
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  DEBUG=${DEBUG:-}
+  if [[ ! -z $DEBUG ]]; then
+    PS4='+($(basename ${BASH_SOURCE}):${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
+    set -x
+  fi
+
+  ROOT_DIR="$(cd "$(dirname '{{ justfile() }}')" && pwd)"
+  REPLAY_FILE="$ROOT_DIR/{{ replay }}"
+  RENDER_DIR="$ROOT_DIR/{{ render }}"
+  WORK_DIR="$ROOT_DIR/{{ work }}"
+  OUTPUT_PARENT="$(dirname "$RENDER_DIR")"
+
+  export XDG_CACHE_HOME="${XDG_CACHE_HOME:-/tmp/cookiecutter-ducted-cli-xdg-cache}"
+  export XDG_DATA_HOME="${XDG_DATA_HOME:-/tmp/cookiecutter-ducted-cli-xdg-data}"
+  export UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/cookiecutter-ducted-cli-uv-cache}"
+
+  rm -rf "$RENDER_DIR" "$WORK_DIR"
+  uvx cookiecutter "$ROOT_DIR" --replay-file "$REPLAY_FILE" -o "$OUTPUT_PARENT"
+  cp -a "$RENDER_DIR" "$WORK_DIR"
+  cd "$WORK_DIR" && git init
+
+  printf 'Rendered recipe to %s\n' "$RENDER_DIR"
+  printf 'Created working copy at %s and initialized git\n' "$WORK_DIR"
+
+# Apply Ruff auto-fixes and formatting to the working copy.
+refresh-ruff-fix work=work_dir:
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  DEBUG=${DEBUG:-}
+  if [[ ! -z $DEBUG ]]; then
+    PS4='+($(basename ${BASH_SOURCE}):${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
+    set -x
+  fi
+
+  ROOT_DIR="$(cd "$(dirname '{{ justfile() }}')" && pwd)"
+  WORK_DIR="$ROOT_DIR/{{ work }}"
+
+  export XDG_CACHE_HOME="${XDG_CACHE_HOME:-/tmp/cookiecutter-ducted-cli-xdg-cache}"
+  export XDG_DATA_HOME="${XDG_DATA_HOME:-/tmp/cookiecutter-ducted-cli-xdg-data}"
+  export UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/cookiecutter-ducted-cli-uv-cache}"
+
+  cd "$WORK_DIR"
+  ./tasks fix
+
+# Verify the working copy.
+refresh-verify work=work_dir:
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  DEBUG=${DEBUG:-}
+  if [[ ! -z $DEBUG ]]; then
+    PS4='+($(basename ${BASH_SOURCE}):${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
+    set -x
+  fi
+
+  ROOT_DIR="$(cd "$(dirname '{{ justfile() }}')" && pwd)"
+  WORK_DIR="$ROOT_DIR/{{ work }}"
+
+  export XDG_CACHE_HOME="${XDG_CACHE_HOME:-/tmp/cookiecutter-ducted-cli-xdg-cache}"
+  export XDG_DATA_HOME="${XDG_DATA_HOME:-/tmp/cookiecutter-ducted-cli-xdg-data}"
+  export UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/cookiecutter-ducted-cli-uv-cache}"
+
+  cd "$WORK_DIR"
+  ./tasks check
+
+  printf 'Verified working copy at %s\n' "$WORK_DIR"
+
+# Show a diff between the working copy and the current recipe template.
+# Modes:
+#   filtered - default; hides placeholder-only churn and ignored files
+#   full     - raw git diff between recipe and working copy
+refresh-diff mode='filtered' work=work_dir recipe=recipe_dir diff_target=diff_target_dir:
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  DEBUG=${DEBUG:-}
+  if [[ ! -z $DEBUG ]]; then
+    PS4='+($(basename ${BASH_SOURCE}):${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
+    set -x
+  fi
+
+  ROOT_DIR="$(cd "$(dirname '{{ justfile() }}')" && pwd)"
+  WORK_DIR="$ROOT_DIR/{{ work }}"
+  RECIPE_DIR="$ROOT_DIR/{{ recipe }}"
+  DIFF_TARGET_DIR="$ROOT_DIR/{{ diff_target }}"
+  FULL_DIFF_REPO="${DIFF_TARGET_DIR}.full-repo"
+  MODE='{{ mode }}'
+
+  rm -rf "$DIFF_TARGET_DIR"
+  cp -r "$WORK_DIR" "$DIFF_TARGET_DIR"
+  mv "$DIFF_TARGET_DIR/src/example_cli" "$DIFF_TARGET_DIR/src/{{{{ cookiecutter.package }}"
+
+  if [ "$MODE" = 'full' ]; then
+    rm -rf "$FULL_DIFF_REPO"
+    cp -r "$RECIPE_DIR" "$FULL_DIFF_REPO"
+
+    git -C "$FULL_DIFF_REPO" init -q
+    git -C "$FULL_DIFF_REPO" add .
+    git -C "$FULL_DIFF_REPO" \
+      -c user.name='recipe-refresh' \
+      -c user.email='recipe-refresh@example.invalid' \
+      commit -q -m baseline
+
+    find "$FULL_DIFF_REPO" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+    cp -a "$DIFF_TARGET_DIR"/. "$FULL_DIFF_REPO"/
+
+    git -C "$FULL_DIFF_REPO" add -N .
+
+    if git -C "$FULL_DIFF_REPO" --no-pager diff \
+        --src-prefix=current-recipe/ \
+        --dst-prefix=working-copy/ \
+        HEAD -- .
+    then
+      exit 0
+    else
+      status=$?
+      if [ "$status" -eq 1 ]; then
+        exit 0
+      fi
+      exit "$status"
+    fi
+  fi
+
+  RECIPE="$RECIPE_DIR" WORK="$DIFF_TARGET_DIR" python3 - <<'PY'
+  from __future__ import annotations
+
+  import difflib
+  import os
+  import pathlib
+
+  recipe_dir = pathlib.Path(os.environ["RECIPE"]).resolve()
+  work_dir = pathlib.Path(os.environ["WORK"]).resolve()
+
+  ignored_relpaths = {
+      pathlib.Path("LICENSE"),
+  }
+  excluded_names = {
+    ".git",
+    "uv.lock",
+  }
+
+  def load_simple_gitignore(root: pathlib.Path) -> tuple[set[str], set[str], list[str]]:
+      ignored_dirs: set[str] = set()
+      ignored_files: set[str] = set()
+      ignored_suffixes: list[str] = []
+
+      gitignore = root / ".gitignore"
+      if not gitignore.exists():
+          return ignored_dirs, ignored_files, ignored_suffixes
+
+      for raw in gitignore.read_text().splitlines():
+          line = raw.strip()
+          if not line or line.startswith("#"):
+              continue
+
+          if line.startswith("!") or "**" in line:
+              continue
+
+          if line.endswith("/") and "/" not in line[:-1]:
+              ignored_dirs.add(line[:-1])
+              continue
+
+          if line.startswith("*.") and "/" not in line and "*" not in line[1:] and "?" not in line:
+              ignored_suffixes.append(line[1:])
+              continue
+
+          if "/" not in line and "*" not in line and "?" not in line:
+              ignored_files.add(line)
+
+      return ignored_dirs, ignored_files, ignored_suffixes
+
+  ignored_dirs, ignored_files, ignored_suffixes = load_simple_gitignore(work_dir)
+
+  def should_skip(path: pathlib.Path) -> bool:
+      if any(part in excluded_names for part in path.parts):
+          return True
+      if any(part in ignored_dirs for part in path.parts):
+          return True
+      if path.name in ignored_files:
+          return True
+      if any(path.name.endswith(suffix) for suffix in ignored_suffixes):
+          return True
+      return False
+
+  def is_template_line(line: str) -> bool:
+      return (
+          "{{{{ cookiecutter." in line
+          or "{% " in line
+          or "{%-" in line
+          or "{% if cookiecutter." in line
+          or "{% elif cookiecutter." in line
+          or "{% endif" in line
+          or "{% now " in line
+      )
+
+  def collect_files(root: pathlib.Path) -> set[pathlib.Path]:
+      files: set[pathlib.Path] = set()
+      for path in root.rglob("*"):
+          if not path.is_file():
+              continue
+          rel = path.relative_to(root)
+          if should_skip(rel):
+              continue
+          files.add(rel)
+      return files
+
+  all_files = sorted(collect_files(recipe_dir) | collect_files(work_dir))
+  emitted_any = False
+
+  for rel in all_files:
+      if rel in ignored_relpaths:
+          continue
+
+      recipe_path = recipe_dir / rel
+      work_path = work_dir / rel
+
+      if not recipe_path.exists():
+          emitted_any = True
+          print(f"Only in working copy: {rel}")
+          continue
+      if not work_path.exists():
+          emitted_any = True
+          print(f"Only in current recipe: {rel}")
+          continue
+
+      try:
+          recipe_lines = recipe_path.read_text().splitlines()
+          work_lines = work_path.read_text().splitlines()
+      except UnicodeDecodeError:
+          emitted_any = True
+          print(f"Binary file differs: {rel}")
+          continue
+
+      matcher = difflib.SequenceMatcher(a=recipe_lines, b=work_lines)
+      chunks: list[str] = []
+
+      for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+          if tag == "equal":
+              continue
+
+          old_lines = recipe_lines[i1:i2]
+          new_lines = work_lines[j1:j2]
+
+          if tag in {"replace", "delete"} and old_lines and all(is_template_line(line) for line in old_lines):
+              continue
+
+          chunk_lines = [f"@@ {tag} recipe[{i1}:{i2}] work[{j1}:{j2}] @@"]
+          chunk_lines.extend(f"-{line}" for line in old_lines)
+          chunk_lines.extend(f"+{line}" for line in new_lines)
+          chunks.append("\n".join(chunk_lines))
+
+      if chunks:
+          emitted_any = True
+          print(f"diff -- {rel}")
+          print("\n\n".join(chunks))
+          print()
+
+  if not emitted_any:
+      print("No non-placeholder diffs.")
+  PY
+
+# Show the raw full diff between the current recipe template and the working copy.
+refresh-diff-full work=work_dir recipe=recipe_dir diff_target=diff_target_dir:
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  ROOT_DIR="$(cd "$(dirname '{{ justfile() }}')" && pwd)"
+  "$ROOT_DIR/tasks" refresh-diff full '{{ work }}' '{{ recipe }}' '{{ diff_target }}'

@@ -1,0 +1,126 @@
+[project]
+name = "{{ cookiecutter.package_name }}"
+version = "{{ cookiecutter.version }}"
+description = "{{ cookiecutter.project_short_description }}"
+authors = [
+    {name = "{{ cookiecutter.full_name }}", email = "{{ cookiecutter.email }}"},
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "cyclopts>=4.11.0",
+    "duct>=1.0.1",
+    "python-daemon>=3.1.2",
+    "rich>=15.0.0",
+    "minilog>=2.3.1",
+]
+
+[dependency-groups]
+dev = [
+    "deptry>=0.25.1",
+    "pytest>=9.0.3",
+    "ruff>=0.15.20",
+    "ty>=0.0.55",
+]
+
+[project.scripts]
+{{ cookiecutter.package_name }} = "{{ cookiecutter.package }}.cli:run"
+
+[build-system]
+requires = ["uv_build>=0.11.3,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+cache_dir = ".cache/pytest"
+testpaths = ["tests"]
+
+[tool.ruff]
+cache-dir = ".cache/ruff/"
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    # flake8-2020
+    "YTT",
+    # flake8-bandit
+    "S",
+    # flake8-bugbear
+    "B",
+    # flake8-builtins
+    "A",
+    # flake8-comprehensions
+    "C4",
+    # flake8-debugger
+    "T10",
+    # flake8-simplify
+    "SIM",
+    # isort
+    "I",
+    # mccabe
+    "C90",
+    # pycodestyle
+    "E", "W",
+    # pyflakes
+    "F",
+    # pygrep-hooks
+    "PGH",
+    # pyupgrade
+    "UP",
+    # ruff
+    "RUF",
+    # tryceratops
+    "TRY",
+]
+ignore = [
+    # LineTooLong
+    "E501",
+    # DoNotAssignLambda
+    "E731",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = [
+    # __all__ is grouped by category, not alphabetically
+    "RUF022",
+]
+"console.py" = [
+    # print() intentionally shadows builtin (writes to stderr)
+    "A001",
+]
+"errors.py" = [
+    # exit() intentionally shadows builtin (styled exit helper)
+    "A001",
+]
+"context.py" = [
+    # try-except-pass for duct command extraction (intentional)
+    "S110",
+]
+"shell.py" = [
+    # try-except-pass for duct command extraction (intentional)
+    "S110",
+    # Long error messages in exceptions (style choice)
+    "TRY003",
+]
+"config.py" = [
+    # Long error messages in exceptions (style choice)
+    "TRY003",
+    # ValueResolver.get() is inherently complex
+    "C901",
+]
+"daemon.py" = [
+    # Long error messages in exceptions (style choice)
+    "TRY003",
+    # Files must stay open for daemon lifetime
+    "SIM115",
+    # try/return in except block is clearer here
+    "TRY300",
+]
+"tests/*" = [
+    # Use of assert detected
+    "S101",
+]
+
+[tool.deptry]
+known_first_party = ["{{ cookiecutter.package }}"]
+ignore_notebooks = true
