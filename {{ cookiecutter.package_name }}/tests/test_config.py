@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from {{ cookiecutter.package }}.config import ValueResolver
+from {{ cookiecutter.package }}.app.config import ValueResolver
 
 
 def test_value_resolver_precedence() -> None:

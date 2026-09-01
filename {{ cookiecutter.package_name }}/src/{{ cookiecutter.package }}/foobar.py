@@ -8,8 +8,8 @@ from typing import Any, Self
 import duct
 import log
 
-from {{ cookiecutter.package }} import get_context, run_command
-from {{ cookiecutter.package }}.config import ValueResolver, load_config_safe
+from {{ cookiecutter.package }}.app import get_context, run_command
+from {{ cookiecutter.package }}.app.config import ValueResolver, load_config_safe
 
 
 @dataclasses.dataclass

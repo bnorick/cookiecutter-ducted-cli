@@ -6,7 +6,7 @@ Provides a pre-configured Rich Console that:
 - Adapts output format accordingly
 
 Usage:
-    from {{ cookiecutter.package }} import console, success, error, status, table
+    from {{ cookiecutter.package }}.app import console, success, error, status, table
 
     success("Operation completed")
     error("Something went wrong")
@@ -19,8 +19,11 @@ Usage:
 
 from __future__ import annotations
 
+import re
 import sys
-from typing import TYPE_CHECKING, Any, cast
+from contextlib import redirect_stdout
+from getpass import getpass
+from typing import TYPE_CHECKING, Any, TextIO, cast
 
 import log
 from rich.console import Console
@@ -33,14 +36,69 @@ from rich.progress import (
 )
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
+from rich.text import TextType
+
+try:
+    import readline  # noqa: F401 -- importing installs Python's line editor
+except ImportError:
+    _READLINE_AVAILABLE = False
+else:
+    _READLINE_AVAILABLE = True
 
 if TYPE_CHECKING:
     from rich.status import Status as RichStatus
 
+
+_ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\][^\x07\x1b]*(?:\x07|\x1b\\)|\[[0-?]*[ -/]*[@-~]|[@-Z\\-_])")
+_READLINE_PROMPT_START_IGNORE = "\x01"
+_READLINE_PROMPT_END_IGNORE = "\x02"
+
+
+def _mark_readline_nonprinting(prompt: str) -> str:
+    """Tell Readline that ANSI escape sequences occupy no screen columns."""
+    return _ANSI_ESCAPE_RE.sub(
+        lambda match: f"{_READLINE_PROMPT_START_IGNORE}{match.group(0)}{_READLINE_PROMPT_END_IGNORE}",
+        prompt,
+    )
+
+
+class ReadlineConsole(Console):
+    """A Rich console whose prompts remain intact while Readline edits input."""
+
+    def input(
+        self,
+        prompt: TextType = "",
+        *,
+        markup: bool = True,
+        emoji: bool = True,
+        password: bool = False,
+        stream: TextIO | None = None,
+    ) -> str:
+        prompt_str = ""
+        if prompt:
+            with self.capture() as capture:
+                self.print(prompt, markup=markup, emoji=emoji, end="")
+            prompt_str = capture.get()
+        if self.legacy_windows:
+            self.file.write(prompt_str)
+            prompt_str = ""
+        if password:
+            return getpass(prompt_str, stream=stream)
+        if stream:
+            self.file.write(prompt_str)
+            return stream.readline()
+        if _READLINE_AVAILABLE:
+            prompt_str = _mark_readline_nonprinting(prompt_str)
+        # input() must receive the prompt so Readline knows its visible width.
+        # Redirect its prompt output to this console's stderr-backed file.
+        with redirect_stdout(self.file):
+            return input(prompt_str)
+
+
 # ---------------------------------------------------------------------------
 # Global console instance - writes to stderr so stdout stays clean for piping
 # ---------------------------------------------------------------------------
-_console = Console(stderr=True, force_terminal=False)
+_console = ReadlineConsole(stderr=True, force_terminal=False)
 # TODO: This cast works around a tooling conflict: ty rejects direct access to
 # Rich Console runtime attributes like force_terminal/emoji, while Ruff rejects
 # setattr() with constant attribute names. Check whether Rich exposes setter

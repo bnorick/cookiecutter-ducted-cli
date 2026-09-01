@@ -1,5 +1,6 @@
 {
   "project_name": "Ducted CLI",
+  "layout": ["package", "single-file"],
   "package_name": "{{ cookiecutter.project_name.lower().replace(' ', '-') }}",
   "package": "{{ cookiecutter.package_name.replace('-', '_') }}",
   "env_var_prefix": "{{ cookiecutter.package.upper() }}",

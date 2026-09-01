@@ -34,6 +34,13 @@ Use the repo-root `./tasks` commands for recipe refresh work:
   - shows the filtered diff between the current recipe and the working copy
   - this is the default review view
 
+- `./tasks refresh-single-render-and-copy`, `refresh-single-verify`, and
+  `refresh-single-diff`
+  - exercise the single-file branch using its dedicated replay fixture
+
+- `./tasks refresh-check`
+  - renders and verifies both supported layouts
+
 - `./tasks refresh-diff-full`
   - shows the raw full diff
   - use this only when the filtered diff is giving unexpected results and you suspect it is hiding something important
@@ -61,6 +68,11 @@ If a rendered working copy fails Ruff, formatter, or type checks:
    - `./tasks refresh-render-and-copy`
    - `./tasks refresh-verify`
    - `./tasks refresh-diff`
+
+For changes shared by both layouts, run the corresponding `refresh-single-*`
+commands as well. The packaged `app/cli_help.py` template is included directly
+in the generated single-file executable, so help-engine changes require both
+verification paths.
 
 Do not stop at “the rendered copy passes.” The recipe itself must be updated so a fresh render passes.
 

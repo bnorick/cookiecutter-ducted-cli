@@ -6,6 +6,10 @@ replay_file := "resources/replay-example-cli.json"
 render_dir := "annex/update/example-cli"
 work_dir := "annex/update/example-cli-copy"
 diff_target_dir := "annex/update/example-cli-diff"
+single_replay_file := "resources/replay-example-script.json"
+single_render_dir := "annex/update-single/example-cli"
+single_work_dir := "annex/update-single/example-cli-copy"
+single_diff_target_dir := "annex/update-single/example-cli-diff"
 recipe_dir := "{{ cookiecutter.package_name }}"
 
 @default:
@@ -39,6 +43,10 @@ refresh-render-and-copy replay=replay_file render=render_dir work=work_dir:
 
   printf 'Rendered recipe to %s\n' "$RENDER_DIR"
   printf 'Created working copy at %s and initialized git\n' "$WORK_DIR"
+
+# Render the single-file recipe branch and create a working copy.
+refresh-single-render-and-copy:
+  {{ just }} refresh-render-and-copy {{ single_replay_file }} {{ single_render_dir }} {{ single_work_dir }}
 
 # Apply Ruff auto-fixes and formatting to the working copy.
 refresh-ruff-fix work=work_dir:
@@ -84,11 +92,15 @@ refresh-verify work=work_dir:
 
   printf 'Verified working copy at %s\n' "$WORK_DIR"
 
+# Verify the rendered single-file working copy.
+refresh-single-verify:
+  {{ just }} refresh-verify {{ single_work_dir }}
+
 # Show a diff between the working copy and the current recipe template.
 # Modes:
 #   filtered - default; hides placeholder-only churn and ignored files
 #   full     - raw git diff between recipe and working copy
-refresh-diff mode='filtered' work=work_dir recipe=recipe_dir diff_target=diff_target_dir:
+refresh-diff mode='filtered' work=work_dir recipe=recipe_dir diff_target=diff_target_dir layout='package':
   #!/usr/bin/env bash
   set -euo pipefail
 
@@ -107,7 +119,12 @@ refresh-diff mode='filtered' work=work_dir recipe=recipe_dir diff_target=diff_ta
 
   rm -rf "$DIFF_TARGET_DIR"
   cp -r "$WORK_DIR" "$DIFF_TARGET_DIR"
-  mv "$DIFF_TARGET_DIR/src/example_cli" "$DIFF_TARGET_DIR/src/{{{{ cookiecutter.package }}"
+  if [ -d "$DIFF_TARGET_DIR/src/example_cli" ]; then
+    mv "$DIFF_TARGET_DIR/src/example_cli" "$DIFF_TARGET_DIR/src/{{{{ cookiecutter.package }}"
+  fi
+  if [ -f "$DIFF_TARGET_DIR/example-cli" ]; then
+    mv "$DIFF_TARGET_DIR/example-cli" "$DIFF_TARGET_DIR/{{{{ cookiecutter.package_name }}"
+  fi
 
   if [ "$MODE" = 'full' ]; then
     rm -rf "$FULL_DIFF_REPO"
@@ -140,7 +157,7 @@ refresh-diff mode='filtered' work=work_dir recipe=recipe_dir diff_target=diff_ta
     fi
   fi
 
-  RECIPE="$RECIPE_DIR" WORK="$DIFF_TARGET_DIR" python3 - <<'PY'
+  RECIPE="$RECIPE_DIR" WORK="$DIFF_TARGET_DIR" LAYOUT='{{ layout }}' python3 - <<'PY'
   from __future__ import annotations
 
   import difflib
@@ -149,6 +166,7 @@ refresh-diff mode='filtered' work=work_dir recipe=recipe_dir diff_target=diff_ta
 
   recipe_dir = pathlib.Path(os.environ["RECIPE"]).resolve()
   work_dir = pathlib.Path(os.environ["WORK"]).resolve()
+  layout = os.environ["LAYOUT"]
 
   ignored_relpaths = {
       pathlib.Path("LICENSE"),
@@ -191,6 +209,18 @@ refresh-diff mode='filtered' work=work_dir recipe=recipe_dir diff_target=diff_ta
   ignored_dirs, ignored_files, ignored_suffixes = load_simple_gitignore(work_dir)
 
   def should_skip(path: pathlib.Path) -> bool:
+      if layout == "package":
+          if path == pathlib.Path("tests/test_script.py"):
+              return True
+          if len(path.parts) == 1 and path.name.endswith("cookiecutter.package_name }}"):
+              return True
+      else:
+          if path.parts and path.parts[0] == "src":
+              return True
+          if path == pathlib.Path("pyproject.toml"):
+              return True
+          if path.parts and path.parts[0] == "tests" and path.name != "test_script.py":
+              return True
       if any(part in excluded_names for part in path.parts):
           return True
       if any(part in ignored_dirs for part in path.parts):
@@ -260,6 +290,9 @@ refresh-diff mode='filtered' work=work_dir recipe=recipe_dir diff_target=diff_ta
           old_lines = recipe_lines[i1:i2]
           new_lines = work_lines[j1:j2]
 
+          if any("{% if cookiecutter.layout" in line or "{% else" in line or "{% endif" in line for line in old_lines):
+              continue
+
           if tag in {"replace", "delete"} and old_lines and all(is_template_line(line) for line in old_lines):
               continue
 
@@ -277,6 +310,109 @@ refresh-diff mode='filtered' work=work_dir recipe=recipe_dir diff_target=diff_ta
   if not emitted_any:
       print("No non-placeholder diffs.")
   PY
+
+# Compare the rendered single-file branch with its recipe inputs.
+refresh-single-diff mode='filtered':
+  {{ just }} refresh-diff '{{ mode }}' '{{ single_work_dir }}' '{{ recipe_dir }}' '{{ single_diff_target_dir }}' single-file
+
+# Render and verify both supported layouts from scratch.
+refresh-check:
+  {{ just }} refresh-render-and-copy
+  {{ just }} refresh-verify
+  {{ just }} refresh-single-render-and-copy
+  {{ just }} refresh-single-verify
+
+# Update minimum dependency version floors in the recipe pyproject.toml.
+# Renders the package layout, resolves dependencies, bumps each pinned floor to
+# the currently-resolved version in the fresh lockfile (see `uv tree --outdated`),
+# writes the recipe back, then re-renders, verifies, and shows the diff.
+refresh-update-floors:
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  DEBUG=${DEBUG:-}
+  if [[ ! -z $DEBUG ]]; then
+    PS4='+($(basename ${BASH_SOURCE}):${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
+    set -x
+  fi
+
+  ROOT_DIR="$(cd "$(dirname '{{ justfile() }}')" && pwd)"
+  WORK_DIR="$ROOT_DIR/{{ work_dir }}"
+  RECIPE_PYPROJECT="$ROOT_DIR/{{ recipe_dir }}/pyproject.toml"
+  LOCKFILE="$WORK_DIR/uv.lock"
+
+  export XDG_CACHE_HOME="${XDG_CACHE_HOME:-/tmp/cookiecutter-ducted-cli-xdg-cache}"
+  export XDG_DATA_HOME="${XDG_DATA_HOME:-/tmp/cookiecutter-ducted-cli-xdg-data}"
+  export UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/cookiecutter-ducted-cli-uv-cache}"
+
+  # Render the current recipe and create a working copy.
+  {{ just }} refresh-render-and-copy
+
+  # Resolve the current floors to their latest available versions.
+  (cd "$WORK_DIR" && uv lock)
+
+  printf '\n#### OUTDATED DIRECT DEPENDENCIES\n'
+  (cd "$WORK_DIR" && uv tree --outdated --depth 1)
+
+  # Bump each pinned floor in the recipe to the version the fresh lock resolved.
+  # Only [project] dependencies and [dependency-groups] dev pins are touched;
+  # build-system and requires-python pins are left alone.
+  RECIPE_PYPROJECT="$RECIPE_PYPROJECT" LOCKFILE="$LOCKFILE" python3 - <<'PY'
+  from __future__ import annotations
+
+  import os
+  import pathlib
+  import re
+
+  recipe = pathlib.Path(os.environ["RECIPE_PYPROJECT"])
+  lock = pathlib.Path(os.environ["LOCKFILE"])
+
+  resolved: dict[str, str] = {}
+  block: dict[str, str] | None = None
+  for line in lock.read_text().splitlines():
+      if line.startswith("[[package]]"):
+          block = {}
+      elif block is not None:
+          if line.startswith("name = "):
+              block["name"] = line.split('"')[1]
+          elif "name" in block and line.startswith("version = "):
+              block["version"] = line.split('"')[1]
+              resolved[block["name"]] = block["version"]
+              block = None
+
+  floor = re.compile(
+      r'^(?P<indent>\s*")(?P<name>[A-Za-z0-9._-]+)(?P<op>>=)(?P<cur>[0-9][0-9A-Za-z._]*)'
+  )
+
+  updated: list[str] = []
+  lines = recipe.read_text().splitlines()
+  for idx, line in enumerate(lines):
+      match = floor.match(line)
+      if match and match.group("op") == ">=" and match.group("name") in resolved:
+          name = match.group("name")
+          new = resolved[name]
+          if match.group("cur") != new:
+              updated.append(f"{name}: {match.group('cur')} -> {new}")
+              lines[idx] = floor.sub(
+                  lambda m, nv=new: (
+                      f"{m.group('indent')}{m.group('name')}{m.group('op')}{nv}"
+                  ),
+                  line,
+                  count=1,
+              )
+  recipe.write_text("\n".join(lines) + "\n")
+
+  if updated:
+      print("\n#### UPDATED MINIMUM VERSIONS")
+      print("\n".join(updated))
+  else:
+      print("\nAll dependency floors already at the latest resolved versions.")
+  PY
+
+  # Re-render from the patched recipe, verify, and review the resulting diff.
+  {{ just }} refresh-render-and-copy
+  {{ just }} refresh-verify
+  {{ just }} refresh-diff
 
 # Show the raw full diff between the current recipe template and the working copy.
 refresh-diff-full work=work_dir recipe=recipe_dir diff_target=diff_target_dir:

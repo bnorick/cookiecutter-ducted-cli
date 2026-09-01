@@ -5,7 +5,7 @@ signal handlers for graceful shutdown.
 
 Usage::
 
-    from {{ cookiecutter.package }} import (
+    from {{ cookiecutter.package }}.app import (
         CliError,
         NotFoundError,
         install_exception_hook,
@@ -28,7 +28,7 @@ import signal
 import sys
 from typing import Any
 
-from {{ cookiecutter.package }}.console import _console, is_interactive
+from {{ cookiecutter.package }}.app.console import _console, is_interactive
 
 # ---------------------------------------------------------------------------
 # Custom exceptions
