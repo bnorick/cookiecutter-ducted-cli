@@ -322,6 +322,98 @@ refresh-check:
   {{ just }} refresh-single-render-and-copy
   {{ just }} refresh-single-verify
 
+# Update minimum dependency version floors in the recipe pyproject.toml.
+# Renders the package layout, resolves dependencies, bumps each pinned floor to
+# the currently-resolved version in the fresh lockfile (see `uv tree --outdated`),
+# writes the recipe back, then re-renders, verifies, and shows the diff.
+refresh-update-floors:
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  DEBUG=${DEBUG:-}
+  if [[ ! -z $DEBUG ]]; then
+    PS4='+($(basename ${BASH_SOURCE}):${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
+    set -x
+  fi
+
+  ROOT_DIR="$(cd "$(dirname '{{ justfile() }}')" && pwd)"
+  WORK_DIR="$ROOT_DIR/{{ work_dir }}"
+  RECIPE_PYPROJECT="$ROOT_DIR/{{ recipe_dir }}/pyproject.toml"
+  LOCKFILE="$WORK_DIR/uv.lock"
+
+  export XDG_CACHE_HOME="${XDG_CACHE_HOME:-/tmp/cookiecutter-ducted-cli-xdg-cache}"
+  export XDG_DATA_HOME="${XDG_DATA_HOME:-/tmp/cookiecutter-ducted-cli-xdg-data}"
+  export UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/cookiecutter-ducted-cli-uv-cache}"
+
+  # Render the current recipe and create a working copy.
+  {{ just }} refresh-render-and-copy
+
+  # Resolve the current floors to their latest available versions.
+  (cd "$WORK_DIR" && uv lock)
+
+  printf '\n#### OUTDATED DIRECT DEPENDENCIES\n'
+  (cd "$WORK_DIR" && uv tree --outdated --depth 1)
+
+  # Bump each pinned floor in the recipe to the version the fresh lock resolved.
+  # Only [project] dependencies and [dependency-groups] dev pins are touched;
+  # build-system and requires-python pins are left alone.
+  RECIPE_PYPROJECT="$RECIPE_PYPROJECT" LOCKFILE="$LOCKFILE" python3 - <<'PY'
+  from __future__ import annotations
+
+  import os
+  import pathlib
+  import re
+
+  recipe = pathlib.Path(os.environ["RECIPE_PYPROJECT"])
+  lock = pathlib.Path(os.environ["LOCKFILE"])
+
+  resolved: dict[str, str] = {}
+  block: dict[str, str] | None = None
+  for line in lock.read_text().splitlines():
+      if line.startswith("[[package]]"):
+          block = {}
+      elif block is not None:
+          if line.startswith("name = "):
+              block["name"] = line.split('"')[1]
+          elif "name" in block and line.startswith("version = "):
+              block["version"] = line.split('"')[1]
+              resolved[block["name"]] = block["version"]
+              block = None
+
+  floor = re.compile(
+      r'^(?P<indent>\s*")(?P<name>[A-Za-z0-9._-]+)(?P<op>>=)(?P<cur>[0-9][0-9A-Za-z._]*)'
+  )
+
+  updated: list[str] = []
+  lines = recipe.read_text().splitlines()
+  for idx, line in enumerate(lines):
+      match = floor.match(line)
+      if match and match.group("op") == ">=" and match.group("name") in resolved:
+          name = match.group("name")
+          new = resolved[name]
+          if match.group("cur") != new:
+              updated.append(f"{name}: {match.group('cur')} -> {new}")
+              lines[idx] = floor.sub(
+                  lambda m, nv=new: (
+                      f"{m.group('indent')}{m.group('name')}{m.group('op')}{nv}"
+                  ),
+                  line,
+                  count=1,
+              )
+  recipe.write_text("\n".join(lines) + "\n")
+
+  if updated:
+      print("\n#### UPDATED MINIMUM VERSIONS")
+      print("\n".join(updated))
+  else:
+      print("\nAll dependency floors already at the latest resolved versions.")
+  PY
+
+  # Re-render from the patched recipe, verify, and review the resulting diff.
+  {{ just }} refresh-render-and-copy
+  {{ just }} refresh-verify
+  {{ just }} refresh-diff
+
 # Show the raw full diff between the current recipe template and the working copy.
 refresh-diff-full work=work_dir recipe=recipe_dir diff_target=diff_target_dir:
   #!/usr/bin/env bash
