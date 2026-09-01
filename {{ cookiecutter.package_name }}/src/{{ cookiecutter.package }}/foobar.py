@@ -59,4 +59,6 @@ def foobar(baz: int) -> None:
 
     for i in range(baz):
         log.info(f"I want to say '{i} foobar'")
+        # Shell out through run_command rather than a bare duct call so the shared verbose/dry-run
+        # policy is honored for free: --verbose logs the command and --dry-run skips execution.
         run_command(duct.cmd("echo", f"{i} foobar"))

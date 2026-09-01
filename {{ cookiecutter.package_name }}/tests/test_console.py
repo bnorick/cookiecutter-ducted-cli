@@ -9,7 +9,9 @@ from {{ cookiecutter.package }}.app.console import (
     _ANSI_ESCAPE_RE,
     ReadlineConsole,
     _mark_readline_nonprinting,
+    info,
 )
+from {{ cookiecutter.package }}.app.context import CONTEXT
 
 
 def test_mark_readline_nonprinting_wraps_ansi_sequences() -> None:
@@ -42,3 +44,30 @@ def test_console_input_passes_colored_prompt_to_readline(
     assert "\x1b[" in ansi_prompt
     assert received_prompt == _mark_readline_nonprinting(ansi_prompt)
     assert _ANSI_ESCAPE_RE.sub("", ansi_prompt) == "Danger: "
+
+
+def test_info_is_gated_by_verbosity_level(monkeypatch: pytest.MonkeyPatch) -> None:
+    from io import StringIO
+
+    from rich.console import Console
+
+    buffer = StringIO()
+    module = importlib.import_module("{{ cookiecutter.package }}.app.console")
+    monkeypatch.setattr(module, "_console", Console(file=buffer, force_terminal=False))
+
+    try:
+        CONTEXT.verbosity = 0
+        info("hidden at level 0")
+        assert "hidden at level 0" not in buffer.getvalue()
+
+        CONTEXT.verbosity = 1
+        info("shown at level 1")
+        info("hidden at level 2", verbosity=2)
+        assert "shown at level 1" in buffer.getvalue()
+        assert "hidden at level 2" not in buffer.getvalue()
+
+        CONTEXT.verbosity = 3
+        info("deep reachable", verbosity=3)
+        assert "deep reachable" in buffer.getvalue()
+    finally:
+        CONTEXT.verbosity = 0

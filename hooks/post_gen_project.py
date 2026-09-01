@@ -83,6 +83,7 @@ if __name__ == "__main__":
         delete(relpath="tests/test_cli_help.py")
         delete(relpath="tests/test_config.py")
         delete(relpath="tests/test_console.py")
+        delete(relpath="tests/test_context.py")
         (PROJECT_DIRECTORY / "{{ cookiecutter.package_name }}").chmod(0o755)
     else:
         delete(relpath="{{ cookiecutter.package_name }}")

@@ -7,7 +7,7 @@ from typing import Annotated
 import cyclopts
 
 from {{ cookiecutter.package }} import foobar as action
-from {{ cookiecutter.package }}.app import get_context, info
+from {{ cookiecutter.package }}.app import info
 
 
 def foobar(
@@ -29,8 +29,6 @@ def foobar(
     """
     args = action.FoobarArgs.resolve(baz=baz)
 
-    ctx = get_context()
-    if ctx.verbose:
-        info(f"Will say 'foobar' {args.baz} times")
+    info(f"Will say 'foobar' {args.baz} times", verbosity=1)
 
     action.foobar(**args.as_kwargs())

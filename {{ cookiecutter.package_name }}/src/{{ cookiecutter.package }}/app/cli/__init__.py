@@ -37,12 +37,16 @@ class GlobalArgs:
         ),
     ] = None
     verbose: Annotated[
-        bool,
+        int,
         cyclopts.Parameter(
-            help="Print additional diagnostics.\n\n"
-            "Report resolved inputs and execution details to stderr without changing data output."
+            count=True,
+            short_alias=True,
+            negative=(),
+            help="Increase verbosity.\n\n"
+            "Repeat for more detail (``-v``, ``-vv``, ``-vvv``). Higher levels add resolution and "
+            "execution details to stderr without changing data output; ``--verbose`` is shorthand for ``-v``.",
         ),
-    ] = False
+    ] = 0
     quiet: Annotated[
         bool,
         cyclopts.Parameter(
@@ -68,7 +72,7 @@ def app_launcher(
     context = get_context()
     if global_args is not None:
         context.config_dir = global_args.config_dir
-        context.verbose = global_args.verbose
+        context.verbosity = global_args.verbose
         context.quiet = global_args.quiet
         context.dry_run = global_args.dry_run
 

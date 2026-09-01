@@ -85,3 +85,24 @@ def test_help_command_has_concise_help() -> None:
     assert result.returncode == 0
     assert "Usage: {{ cookiecutter.package_name }} help [OPTIONS] [COMMAND]..." in result.stdout
     assert "--no-pager" in result.stdout
+
+
+def test_verbose_level_counter_gates_diagnostics() -> None:
+    plain = subprocess.run(
+        [sys.executable, "-m", "{{ cookiecutter.package }}", "--baz", "1"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    noisy = subprocess.run(
+        [sys.executable, "-m", "{{ cookiecutter.package }}", "-vvv", "--baz", "1"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert plain.returncode == 0
+    assert noisy.returncode == 0
+    assert "Will say 'foobar' 1 times" not in plain.stderr
+    assert "Will say 'foobar' 1 times" in noisy.stderr
+    assert noisy.stdout == "0 foobar\n"

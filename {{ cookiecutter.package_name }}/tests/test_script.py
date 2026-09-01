@@ -73,7 +73,7 @@ def test_concise_and_detailed_help() -> None:
     assert "This example keeps pipeable data on stdout." in detailed.stdout
 
 
-def test_hidden_default_execution() -> None:
+def test_hidden_default_execution_shells_out_via_run_command() -> None:
     result = subprocess.run(
         [str(SCRIPT), "--baz", "2"],
         check=False,
@@ -82,4 +82,83 @@ def test_hidden_default_execution() -> None:
     )
 
     assert result.returncode == 0
-    assert result.stdout == "foobar\nfoobar\n"
+    assert result.stdout == "0 foobar\n1 foobar\n"
+
+
+def test_dry_run_prints_commands_without_executing() -> None:
+    result = subprocess.run(
+        [str(SCRIPT), "--dry-run", "--baz", "2"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == ""
+    assert "Would run:" in result.stderr
+    assert "echo 0 foobar" in result.stderr
+    assert "echo 1 foobar" in result.stderr
+
+
+def test_verbose_logs_commands_and_still_executes() -> None:
+    result = subprocess.run(
+        [str(SCRIPT), "--verbose", "--baz", "1"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == "0 foobar\n"
+    assert "Running:" in result.stderr
+    assert "echo 0 foobar" in result.stderr
+
+
+def test_run_command_always_run_executes_and_marks_during_dry_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from io import StringIO
+
+    from rich.console import Console
+
+    executed: list[bool] = []
+
+    class FakeCommand:
+        def run(self) -> None:
+            executed.append(True)
+
+    def fake_cmd(*args: str) -> FakeCommand:
+        return FakeCommand()
+
+    buffer = StringIO()
+    monkeypatch.setattr("duct.cmd", fake_cmd)
+    monkeypatch.setattr(tool, "console", Console(file=buffer, force_terminal=False))
+    monkeypatch.setattr(tool, "_DRY_RUN", True)
+    tool.run_command("echo", "hi", always_run=True)
+    tool.run_command("echo", "hi")
+
+    assert executed == [True]
+    output = buffer.getvalue()
+    assert "Running (even in dry-run):" in output
+    assert "Would run:" in output
+
+
+def test_verbose_level_counter_enables_run_tracing() -> None:
+    plain = subprocess.run(
+        [str(SCRIPT), "--baz", "1"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    noisy = subprocess.run(
+        [str(SCRIPT), "-vvv", "--baz", "1"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert plain.returncode == 0
+    assert noisy.returncode == 0
+    assert "Running:" not in plain.stderr
+    assert "Running:" in noisy.stderr
+    assert noisy.stdout == "0 foobar\n"

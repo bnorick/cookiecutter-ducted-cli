@@ -82,11 +82,45 @@ def prompt(question: str, *, default: str | None = None, password: bool = False)
     return cast(str, Prompt.ask(question, default=default, password=password, console=console))
 
 
-def run_command(*args: str, dry_run: bool = False) -> None:
-    """Run an argument-safe subprocess, or display it during a dry run."""
-    if dry_run:
-        console.print("Would run:", *args, markup=False)
-        return
+_VERBOSITY = 0
+_DRY_RUN = False
+
+
+@dataclass
+class GlobalArgs:
+    """Global CLI options available on every subcommand."""
+
+    verbose: Annotated[
+        int,
+        cyclopts.Parameter(
+            count=True,
+            short_alias=True,
+            negative=(),
+            help="Increase verbosity; repeat for more detail (-v, -vv, -vvv).",
+        ),
+    ] = 0
+    dry_run: Annotated[
+        bool,
+        cyclopts.Parameter(help="Plan the operation without applying changes."),
+    ] = False
+
+
+def run_command(*args: str, always_run: bool = False) -> None:
+    """Run an argument-safe subprocess, or display it during a verbose or dry run.
+
+    Pass ``always_run=True`` for a non-mutative command whose output is required even during a
+    dry run; it executes normally and is clearly marked as running in the dry-run log.
+    """
+    if _DRY_RUN:
+        console.print(
+            "Running (even in dry-run):" if always_run else "Would run:",
+            *args,
+            markup=False,
+        )
+        if not always_run:
+            return
+    elif _VERBOSITY > 0:
+        console.print("Running:", *args, markup=False)
     duct.cmd(*args).run()
 
 
@@ -100,13 +134,14 @@ def foobar(
 ) -> None:
     """Say 'foobar' a requested number of times.
 
-    This example keeps pipeable data on stdout. Replace its body with the tool's operation while
+    This example keeps pipeable data on stdout. Each iteration shells out through run_command, which
+    applies the shared --verbose/--dry-run policy; replace its body with the tool's operation while
     retaining the parser metadata and detailed-help structure.
     """
     if baz < 1:
         raise ValueError("baz must be positive")
-    for _ in range(baz):
-        print("foobar")
+    for i in range(baz):
+        run_command("echo", f"{i} foobar")
 
 
 app = cyclopts.App(
@@ -150,6 +185,23 @@ app["help"]["--help"].group = GLOBAL_OPTIONS
 app["help"]["--version"].group = GLOBAL_OPTIONS
 
 
+def app_launcher(
+    *tokens: Annotated[str, cyclopts.Parameter(show=False, allow_leading_hyphen=True)],
+    global_args: Annotated[GlobalArgs, cyclopts.Parameter(name="*")] | None = None,
+) -> None:
+    """Apply global flags to the run policy, then dispatch the command."""
+    global _VERBOSITY, _DRY_RUN
+    if global_args is not None:
+        _VERBOSITY = global_args.verbose
+        _DRY_RUN = global_args.dry_run
+    command, bound, _ignored = app.parse_args(tokens)
+    command(*bound.args, **bound.kwargs)
+
+
+app.meta.default(app_launcher)
+app.meta.group_parameters = GLOBAL_OPTIONS
+
+
 def main(argv: Iterable[str] | None = None) -> None:
     """Run the command-line application."""
     help_system = HelpSystem(
@@ -162,7 +214,7 @@ def main(argv: Iterable[str] | None = None) -> None:
     )
     args = help_system.run(sys.argv[1:] if argv is None else argv)
     if args is not None:
-        app(args)
+        app.meta(args)
 
 
 if __name__ == "__main__":

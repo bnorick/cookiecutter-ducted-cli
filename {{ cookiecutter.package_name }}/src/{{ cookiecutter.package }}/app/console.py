@@ -38,6 +38,8 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 from rich.text import TextType
 
+from {{ cookiecutter.package }}.app.context import get_context
+
 try:
     import readline  # noqa: F401 -- importing installs Python's line editor
 except ImportError:
@@ -185,9 +187,20 @@ def warn(message: str) -> None:
     _console.print(f"[bold yellow]⚠ {message}[/bold yellow]")
 
 
-def info(message: str) -> None:
-    """Print an informational message in blue."""
-    _console.print(f"[bold blue]i {message}[/bold blue]")
+def info(message: str, *, verbosity: int | None = None) -> None:
+    """Print an informational message, gated by verbosity level.
+
+    The message appears only when the active ``-v`` level reaches *verbosity*;
+    ``None`` (the default) requests level 1.
+
+    Args:
+        message: Message to print.
+        verbosity: Minimum verbosity level (repeat count of ``-v``) required.
+            ``None`` means level 1.
+    """
+    level = 1 if verbosity is None else verbosity
+    if get_context().verbosity >= level:
+        _console.print(f"[bold blue]i {message}[/bold blue]")
 
 
 # ---------------------------------------------------------------------------
