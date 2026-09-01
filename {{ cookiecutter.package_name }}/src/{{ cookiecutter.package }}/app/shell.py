@@ -3,7 +3,7 @@
 Provides bash-like helpers so that writing Python CLIs feels as natural as
 writing bash scripts::
 
-    from {{ cookiecutter.package }} import run, capture, pipe, cd, glob
+    from {{ cookiecutter.package }}.app import run, capture, pipe, cd, glob
 
     # Run a command (duct expression or shell string)
     run("ls -la")
@@ -49,7 +49,7 @@ from typing import Any
 import duct
 import log
 
-from {{ cookiecutter.package }}.context import get_context, run_command
+from {{ cookiecutter.package }}.app.context import get_context, run_command
 
 # ---------------------------------------------------------------------------
 # Command execution

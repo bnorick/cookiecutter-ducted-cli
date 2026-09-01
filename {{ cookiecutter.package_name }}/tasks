@@ -1,5 +1,58 @@
 #!/usr/bin/env -S uvx --from=rust-just just --justfile
 
+{% if cookiecutter.layout == "single-file" -%}
+script := "{{ cookiecutter.package_name }}"
+requirements := "(uv export --script {{ cookiecutter.package_name }} --format requirements-txt --no-hashes --no-header; printf 'pytest\\n')"
+
+{% raw -%}
+just := "just --justfile " + justfile()
+
+# List all supported project commands and their usage.
+@default:
+    {{ just }} --list
+
+# Run a uv command for standalone-script dependency management.
+@uv *args='':
+    uv $@
+
+# Run Ruff lint checks; use `ruff fix` to apply safe fixes.
+ruff action="check" *args:
+    @printf '\n#### RUFF\n'
+    uvx ruff check --isolated --cache-dir .cache/ruff --line-length 120 --select E4,E7,E9,F,I,S,RUF --per-file-ignores 'tests/*:S101' --per-file-ignores 'tests/*:S603' {{script}} tests {{ if action == "fix" {"--fix"} else {"--output-format=full --no-fix"} }} {{args}}
+
+# Type-check the script and tests; additional ty arguments are forwarded.
+ty *args:
+    @printf '\n#### TY\n'
+    {{requirements}} | uv run --no-project --with-requirements - --with ty python -c 'import os, sys; os.environ["PYTHONPATH"] = os.pathsep.join(path for path in sys.path if "site-packages" in path and os.path.isdir(path)); os.execvp("ty", ["ty", "check", "{{script}}", "tests", *sys.argv[1:]])' {{args}}
+
+# Format source and tests; use `format check` to verify without modifying files.
+format action="write" *args:
+    @printf '\n#### FORMAT\n'
+    RUFF_CACHE_DIR=.cache/ruff uvx ruff format --isolated --line-length 120 {{script}} tests {{ if action == "check" {"--check"} else {""} }} {{args}}
+
+# Apply all automatic lint and formatting fixes.
+fix:
+    {{ just }} ruff fix
+    {{ just }} format
+
+# Run the unit test suite; additional pytest arguments are forwarded.
+test *args:
+    @printf '\n#### TEST\n'
+    {{requirements}} | uv run --no-project --with-requirements - pytest tests {{args}}
+
+# Run the complete, non-mutating quality gate.
+check:
+    {{ just }} ruff
+    {{ just }} format check
+    {{ just }} ty
+    {{ just }} test
+
+# Run the standalone tool; all arguments are forwarded.
+[no-exit-message]
+run *args:
+    @./{{script}} {{args}}
+{% endraw %}
+{% else -%}
 package := "{{ cookiecutter.package }}"
 package_dir := "src" / package
 
@@ -61,3 +114,4 @@ clean:
 run command *args:
     @uv run {{command}} {{args}}
 {% endraw %}
+{% endif -%}

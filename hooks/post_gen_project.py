@@ -75,6 +75,19 @@ def _rm_any(target: pathlib.Path):
 
 
 if __name__ == "__main__":
+    single_file = "{{ cookiecutter.layout }}" == "single-file"
+    if single_file:
+        delete(relpath="src")
+        delete(relpath="pyproject.toml")
+        delete(relpath="tests/test_cli.py")
+        delete(relpath="tests/test_cli_help.py")
+        delete(relpath="tests/test_config.py")
+        delete(relpath="tests/test_console.py")
+        (PROJECT_DIRECTORY / "{{ cookiecutter.package_name }}").chmod(0o755)
+    else:
+        delete(relpath="{{ cookiecutter.package_name }}")
+        delete(relpath="tests/test_script.py")
+
     no_license = "{{ cookiecutter.open_source_license }}" == "None"
     if no_license:
         delete(relpath="LICENSE")

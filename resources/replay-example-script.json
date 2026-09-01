@@ -1,7 +1,7 @@
 {
   "cookiecutter": {
     "project_name": "Example CLI",
-    "layout": "package",
+    "layout": "single-file",
     "package_name": "example-cli",
     "package": "example_cli",
     "env_var_prefix": "EXAMPLE_CLI",
@@ -11,7 +11,7 @@
     "version": "0.1.0",
     "open_source_license": "MIT",
     "_template": ".",
-    "_output_dir": "./annex/example-cli",
+    "_output_dir": "./annex/example-script",
     "_repo_dir": ".",
     "_checkout": null
   },

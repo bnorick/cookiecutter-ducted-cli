@@ -1,0 +1,169 @@
+#!/usr/bin/env -S uv run --no-config --script
+# ruff: noqa: E402
+
+# /// script
+# dependencies = [
+#   "cyclopts>=4.11.0",
+#   "duct>=1.0.1",
+#   "rich>=15.0.0",
+# ]
+# requires-python = ">=3.12"
+# ///
+
+{% include "src/{{ cookiecutter.package }}/app/cli_help.py" %}
+
+import re
+from contextlib import redirect_stdout
+from getpass import getpass
+from typing import Annotated, TextIO
+
+import cyclopts
+import duct
+from rich.prompt import Prompt
+from rich.text import TextType
+
+try:
+    import readline  # noqa: F401 -- importing installs Python's line editor
+except ImportError:
+    _READLINE_AVAILABLE = False
+else:
+    _READLINE_AVAILABLE = True
+
+
+_ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\][^\x07\x1b]*(?:\x07|\x1b\\)|\[[0-?]*[ -/]*[@-~]|[@-Z\\-_])")
+_READLINE_PROMPT_START_IGNORE = "\x01"
+_READLINE_PROMPT_END_IGNORE = "\x02"
+
+
+def _mark_readline_nonprinting(prompt: str) -> str:
+    """Tell Readline that ANSI escape sequences occupy no screen columns."""
+    return _ANSI_ESCAPE_RE.sub(
+        lambda match: f"{_READLINE_PROMPT_START_IGNORE}{match.group(0)}{_READLINE_PROMPT_END_IGNORE}",
+        prompt,
+    )
+
+
+class ReadlineConsole(Console):
+    """A Rich console whose prompts remain intact while Readline edits input."""
+
+    def input(
+        self,
+        prompt: TextType = "",
+        *,
+        markup: bool = True,
+        emoji: bool = True,
+        password: bool = False,
+        stream: TextIO | None = None,
+    ) -> str:
+        prompt_str = ""
+        if prompt:
+            with self.capture() as capture:
+                self.print(prompt, markup=markup, emoji=emoji, end="")
+            prompt_str = capture.get()
+        if self.legacy_windows:
+            self.file.write(prompt_str)
+            prompt_str = ""
+        if password:
+            return getpass(prompt_str, stream=stream)
+        if stream:
+            self.file.write(prompt_str)
+            return stream.readline()
+        if _READLINE_AVAILABLE:
+            prompt_str = _mark_readline_nonprinting(prompt_str)
+        with redirect_stdout(self.file):
+            return input(prompt_str)
+
+
+console = ReadlineConsole(stderr=True)
+
+
+def prompt(question: str, *, default: str | None = None, password: bool = False) -> str:
+    """Prompt interactively using the Readline-safe console."""
+    return cast(str, Prompt.ask(question, default=default, password=password, console=console))
+
+
+def run_command(*args: str, dry_run: bool = False) -> None:
+    """Run an argument-safe subprocess, or display it during a dry run."""
+    if dry_run:
+        console.print("Would run:", *args, markup=False)
+        return
+    duct.cmd(*args).run()
+
+
+def foobar(
+    baz: Annotated[
+        int,
+        cyclopts.Parameter(
+            help="Number of times to say foobar.\n\nMust be positive; each message is written to stdout."
+        ),
+    ] = 1,
+) -> None:
+    """Say 'foobar' a requested number of times.
+
+    This example keeps pipeable data on stdout. Replace its body with the tool's operation while
+    retaining the parser metadata and detailed-help structure.
+    """
+    if baz < 1:
+        raise ValueError("baz must be positive")
+    for _ in range(baz):
+        print("foobar")
+
+
+app = cyclopts.App(
+    help="{{ cookiecutter.project_short_description }}",
+    help_format="plaintext",
+    default_parameter=cyclopts.Parameter(negative=(), consume_multiple=True),
+)
+GLOBAL_OPTIONS = cyclopts.Group("Global options", sort_key=100)
+app["--help"].group = GLOBAL_OPTIONS
+app["--version"].group = GLOBAL_OPTIONS
+COMMANDS = ("foobar",)
+CORE_COMMANDS = cyclopts.Group("Core", sort_key=10)
+app.command(
+    foobar,
+    group=CORE_COMMANDS,
+    default_parameter=cyclopts.Parameter(group=cyclopts.Group("Options", sort_key=0)),
+)
+app["foobar"]["--help"].group = GLOBAL_OPTIONS
+app["foobar"]["--version"].group = GLOBAL_OPTIONS
+
+
+def help_command(
+    *command: Annotated[
+        str,
+        cyclopts.Parameter(help="Command path to document.\n\nOmit the path to document the top-level interface."),
+    ],
+    no_pager: Annotated[
+        bool,
+        cyclopts.Parameter(help="Print detailed help without a pager.\n\nUseful for redirection and automated checks."),
+    ] = False,
+) -> None:
+    """Display detailed documentation for a command.
+
+    Detailed help expands every description and uses a terminal pager when one is available.
+    """
+    del command, no_pager
+
+
+app.command(help_command, name="help", group=cyclopts.Group("General", sort_key=90))
+app["help"]["--help"].group = GLOBAL_OPTIONS
+app["help"]["--version"].group = GLOBAL_OPTIONS
+
+
+def main(argv: Iterable[str] | None = None) -> None:
+    """Run the command-line application."""
+    help_system = HelpSystem(
+        app,
+        HelpConfig(
+            program="{{ cookiecutter.package_name }}",
+            default_command=COMMANDS[0],
+            operational_commands=COMMANDS,
+        ),
+    )
+    args = help_system.run(sys.argv[1:] if argv is None else argv)
+    if args is not None:
+        app(args)
+
+
+if __name__ == "__main__":
+    main()

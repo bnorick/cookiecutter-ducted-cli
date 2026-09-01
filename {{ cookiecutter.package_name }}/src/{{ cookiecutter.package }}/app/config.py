@@ -5,7 +5,7 @@ resolving values across environment variables, command-line arguments, and
 config files.
 
 Precedence order (highest to lowest):
-1. Environment variables ({{ cookiecutter.env_var_prefix }}_*)
+1. Environment variables (VLLM_MONITOR_*)
 2. Command-line arguments
 3. TOML configuration files (.local.toml > .toml)
 4. Hardcoded defaults
@@ -16,7 +16,6 @@ from __future__ import annotations
 import builtins
 import collections.abc
 import dataclasses
-import functools
 import json
 import os
 import pathlib
@@ -27,11 +26,17 @@ from typing import Any
 import log
 
 
+def _default_config_dir() -> pathlib.Path:
+    """Return the standard per-user config directory (~/.config/vllm-monitor)."""
+    base = pathlib.Path(os.getenv("XDG_CONFIG_HOME", pathlib.Path.home() / ".config"))
+    return base / "vllm-monitor"
+
+
 def load_config_safe(config_dir: Any = None) -> Config | None:
     """Try to load Config, return None if unavailable (no config dir, missing files, etc.)."""
     try:
         return Config.load(config_dir=config_dir)
-    except (ValueError, FileNotFoundError) as e:
+    except FileNotFoundError as e:
         log.debug(f"Config not loaded: {e}")
         return None
 
@@ -43,14 +48,14 @@ def split_toml_dotted_key(dotted_key: str) -> list[str]:
 
     Args:
         dotted_key: The TOML dotted key as a string
-            (e.g., ``"{{ cookiecutter.package_name }}.start.image"``).
+            (e.g., ``"vllm-monitor.start.image"``).
 
     Returns:
         List of individual key parts.
 
     Example:
-        >>> split_toml_dotted_key("{{ cookiecutter.package_name }}.start.image")
-        ['{{ cookiecutter.package_name }}', 'start', 'image']
+        >>> split_toml_dotted_key("vllm-monitor.start.image")
+        ['vllm-monitor', 'start', 'image']
     """
     bare_key = r"[A-Za-z0-9_-]+"
     quoted_key = r"\"(?:[^\"]|\\\")*\"|'(?:[^']|\\')*'"
@@ -100,7 +105,7 @@ class Config:
 
         Args:
             key: Dotted key path
-                (e.g., ``"{{ cookiecutter.package_name }}.start.image"``).
+                (e.g., ``"vllm-monitor.start.image"``).
             default: Value to return when the key is missing.
 
         Returns:
@@ -117,50 +122,40 @@ class Config:
         return result
 
     @classmethod
-    @functools.cache
     def load(
         cls,
         config_dir: pathlib.Path | str | None = None,
-        cluster_name: str | None = None,
     ) -> Config:
         """Load configuration from TOML files.
 
         Loads in priority order (higher priority first):
-        1. ``{cluster}.local.toml`` (highest priority)
-        2. ``{cluster}.toml``
+        1. ``config.local.toml`` (highest priority)
+        2. ``config.toml``
 
         Missing keys in higher-priority configs are filled from lower priority.
 
         Args:
-            config_dir: Directory containing config files.  If ``None``, uses
-                the ``{{ cookiecutter.env_var_prefix }}_CONFIG_DIR`` env var.
-            cluster_name: Cluster name for config files.  If ``None``, uses
-                the ``CLUSTER_NAME`` env var.
+            config_dir: Directory containing config files.  If ``None``, falls
+                back to the ``VLLM_MONITOR_CONFIG_DIR`` env var, then to the
+                standard per-user config directory
+                (``~/.config/vllm-monitor``).
 
         Returns:
             Config object with merged configuration.
 
         Raises:
-            ValueError: If config_dir or cluster_name cannot be resolved.
             FileNotFoundError: If no config files are found.
         """
         if config_dir is None:
-            config_dir = os.getenv("{{ cookiecutter.env_var_prefix }}_CONFIG_DIR")
-            if not config_dir:
-                raise ValueError(
-                    "config_dir must be provided or {{ cookiecutter.env_var_prefix }}_CONFIG_DIR environment variable must be set"
-                )
-
-        if cluster_name is None:
-            cluster_name = os.getenv("CLUSTER_NAME")
-            if not cluster_name:
-                raise ValueError("cluster_name must be provided or CLUSTER_NAME environment variable must be set")
+            config_dir = os.getenv("VLLM_MONITOR_CONFIG_DIR")
+        if config_dir is None:
+            config_dir = _default_config_dir()
 
         config_dir = pathlib.Path(config_dir).expanduser().resolve()
 
         candidate_paths = [
-            config_dir / f"{cluster_name.lower()}.local.toml",
-            config_dir / f"{cluster_name.lower()}.toml",
+            config_dir / "config.local.toml",
+            config_dir / "config.toml",
         ]
 
         if not any(p.exists() for p in candidate_paths):
@@ -170,23 +165,13 @@ class Config:
             )
 
         loaded_paths: list[pathlib.Path] = []
-        config_dict: dict[str, Any] | None = None
+        config_dict: dict[str, Any] = {}
 
         for path in candidate_paths:
             if not path.exists():
                 continue
-            content = tomllib.loads(path.read_text())
-            if config_dict is None:
-                config_dict = content
-            else:
-                update_config(config_dict, content, missing_only=True)
+            update_config(config_dict, tomllib.loads(path.read_text()), missing_only=True)
             loaded_paths.append(path)
-
-        if config_dict is None:
-            raise FileNotFoundError(
-                "Unable to load configuration, cannot find config at any of the following paths:\n  "
-                + "\n  ".join(str(p) for p in candidate_paths)
-            )
 
         log.debug(f"Loaded config from: {', '.join(str(p) for p in loaded_paths)}")
         return cls(paths=tuple(loaded_paths), _config_dict=config_dict)
@@ -197,10 +182,15 @@ class Config:
 # ---------------------------------------------------------------------------
 
 
+def coerce_bool(value: str) -> bool:
+    """Coerce an env-style string to a bool (``1``, ``true``, ``yes``, ``on``)."""
+    return value.lower() in ("1", "true", "yes", "on")
+
+
 def _coerce_from_env(value: str, target_type: builtins.type) -> Any:
     """Coerce an env-var string to the given type."""
     if target_type is bool:
-        return value.lower() in ("1", "true", "yes", "on")
+        return coerce_bool(value)
     if target_type in (int, float):
         return target_type(value)
     if target_type is list:
@@ -208,18 +198,8 @@ def _coerce_from_env(value: str, target_type: builtins.type) -> Any:
     return value
 
 
-class _NOT_SET_TYPE:
-    pass
-
-
-NOT_SET = _NOT_SET_TYPE()
-
-
-class _MISSING_TYPE:
-    pass
-
-
-MISSING = _MISSING_TYPE()
+NOT_SET = object()
+MISSING = object()
 
 
 @dataclasses.dataclass

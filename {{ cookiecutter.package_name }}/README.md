@@ -2,11 +2,49 @@
 
 {{ cookiecutter.project_short_description }}
 
+{% if cookiecutter.layout == "single-file" -%}
+This project keeps the complete tool in the executable `{{ cookiecutter.package_name }}` so it can be copied to a colleague and run without installing a package. The script carries its Python dependencies in PEP 723 metadata and uses `uv` in its shebang.
+
+Project-level support remains alongside it:
+
+- `tests/` loads and exercises the extensionless script directly;
+- `DEVELOPMENT.md` documents the CLI and help contracts;
+- `AGENTS.md` gives automated contributors concise maintenance rules;
+- `./tasks` provides consistent lint, format, type, and test commands.
+
+## Quick start
+
+```bash
+./{{ cookiecutter.package_name }} --help
+./{{ cookiecutter.package_name }} help foobar --no-pager
+./{{ cookiecutter.package_name }} --baz 2
+./tasks check
+```
+
+The generated script includes Stake-style concise and detailed help, terminal-aware paging and color, a Readline-safe Rich console, an argument-safe `duct` subprocess helper, and a small example command. Its stdout remains available for pipeable command results; diagnostics and interactive prompts should use the stderr-backed console.
+
+## Sharing the tool
+
+Copy only `{{ cookiecutter.package_name }}` to a machine with `uv` installed. The executable shebang resolves the declared dependencies automatically:
+
+```bash
+scp {{ cookiecutter.package_name }} colleague:~/bin/
+```
+
+Keep the surrounding project when developing the tool so changes retain tests, reviewable documentation, and standard checks.
+
+## Adding behavior
+
+Keep the operation as ordinary functions in `{{ cookiecutter.package_name }}` and put Cyclopts metadata at the CLI boundary. Register every operational command in `COMMANDS` and assign it exactly one purpose group. Preserve the first-paragraph/detailed-paragraph split in command and parameter help.
+
+See [DEVELOPMENT.md](DEVELOPMENT.md) for the complete help and testing contract.
+{% else -%}
 This scaffold gives you:
 
 - a Cyclopts-based CLI entrypoint
-- a small action/CLI split for command organization
+- an application-adapter/action split for command organization
 - a `just`-based workflow for linting, formatting, type-checking, and tests
+- concise and detailed Stake-style CLI help with terminal paging
 
 ## Quick start
 
@@ -14,6 +52,7 @@ This scaffold gives you:
 uv sync
 ./tasks check
 uv run {{ cookiecutter.package_name }} --help
+uv run {{ cookiecutter.package_name }} help foobar --no-pager
 ```
 
 You can also run the CLI module directly:
@@ -28,24 +67,31 @@ uv run python -m {{ cookiecutter.package }} --help
 src/{{ cookiecutter.package }}/
     __init__.py
     __main__.py
-    cli/
+    foobar.py
+    app/
         __init__.py
-        foobar.py
-    actions/
-        __init__.py
-        foobar.py
+        cli_help.py
+        config.py
+        console.py
+        context.py
+        daemon.py
+        errors.py
+        shell.py
+        cli/
+            __init__.py
+            foobar.py
 tests/
     test_cli.py
     test_config.py
 ```
 
-Use `cli/` for argument handling and user-facing command behavior. Use `actions/` for the underlying work so it stays testable and reusable outside the command parser.
+Use `app/` for the CLI, parser adapters, and shared application infrastructure. Put each underlying action directly in `src/{{ cookiecutter.package }}/` so the tool's reusable behavior is immediately visible and remains callable without constructing parser state.
 
 ## Adding a command
 
-1. Add an action in `src/{{ cookiecutter.package }}/actions/`.
-2. Add a CLI wrapper in `src/{{ cookiecutter.package }}/cli/`.
-3. Register the command name in `src/{{ cookiecutter.package }}/cli/__init__.py`.
+1. Add an action module directly under `src/{{ cookiecutter.package }}/`.
+2. Add its CLI wrapper under `src/{{ cookiecutter.package }}/app/cli/`.
+3. Register the command name in `src/{{ cookiecutter.package }}/app/cli/__init__.py`.
 
 Example action:
 
@@ -54,7 +100,7 @@ from __future__ import annotations
 
 import duct
 
-from {{ cookiecutter.package }} import run_command, success
+from {{ cookiecutter.package }}.app import run_command, success
 
 
 def greet(name: str, count: int) -> None:
@@ -68,7 +114,7 @@ Example CLI wrapper:
 ```python
 from __future__ import annotations
 
-from {{ cookiecutter.package }}.actions import greet as action
+from {{ cookiecutter.package }} import greet as action
 
 
 def greet(name: str, count: int = 1) -> None:
@@ -100,6 +146,10 @@ If you use `Config.load()`, config files are resolved from `{{ cookiecutter.env_
 
 ## Development
 
+See [DEVELOPMENT.md](DEVELOPMENT.md) for the CLI help contract, command-writing
+guidance, and the hidden-default lifecycle. Automated contributors should also
+follow [AGENTS.md](AGENTS.md).
+
 ```bash
 ./tasks ruff
 ./tasks format check
@@ -107,3 +157,4 @@ If you use `Config.load()`, config files are resolved from `{{ cookiecutter.env_
 ./tasks test
 ./tasks check
 ```
+{% endif -%}

@@ -4,7 +4,7 @@ Provides simple daemon management with PID files, signal handling, and
 start/stop/status/restart operations.
 
 Usage:
-    from {{ cookiecutter.package }} import Daemon
+    from {{ cookiecutter.package }}.app import Daemon
 
     daemon = Daemon("myapp", pid_file="/run/myapp.pid")
 
@@ -20,7 +20,7 @@ Usage:
 
 CLI integration::
 
-    from {{ cookiecutter.package }} import create_daemon_commands
+    from {{ cookiecutter.package }}.app import create_daemon_commands
 
     daemon = Daemon("myapp")
     for name, cmd in create_daemon_commands(daemon, my_main_loop).items():
@@ -267,8 +267,8 @@ def create_daemon_commands(
         app.command(commands["start"], name="start")
         app.command(commands["stop"], name="stop")
     """
-    from {{ cookiecutter.package }}.console import _console as console
-    from {{ cookiecutter.package }}.console import error
+    from {{ cookiecutter.package }}.app.console import _console as console
+    from {{ cookiecutter.package }}.app.console import error
 
     def start_cmd() -> None:
         try:
