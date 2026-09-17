@@ -53,24 +53,26 @@ def test_console_input_passes_colored_prompt_to_readline(
 
 
 def test_concise_and_detailed_help() -> None:
-    concise = subprocess.run(
-        [str(SCRIPT), "--help"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    detailed = subprocess.run(
-        [str(SCRIPT), "help", "foobar", "--no-pager"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    for command in tool.COMMANDS:
+        concise = subprocess.run(
+            [str(SCRIPT), command, "--help"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        detailed = subprocess.run(
+            [str(SCRIPT), "help", command, "--no-pager"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
 
-    assert concise.returncode == 0
-    assert detailed.returncode == 0
-    assert "Use `{{ cookiecutter.package_name }} help foobar` for more details." in concise.stdout
-    assert "This example keeps pipeable data on stdout." not in concise.stdout
-    assert "This example keeps pipeable data on stdout." in detailed.stdout
+        assert concise.returncode == 0
+        assert detailed.returncode == 0
+        assert f"Use `{{ cookiecutter.package_name }} help {command}` for more details." in concise.stdout
+        assert "for more details" not in detailed.stdout
+        assert "Usage:" in concise.stdout
+        assert "Usage:" in detailed.stdout
 
 
 def test_hidden_default_execution_shells_out_via_run_command() -> None:

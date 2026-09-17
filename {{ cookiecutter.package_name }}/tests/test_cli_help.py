@@ -9,7 +9,7 @@ from {{ cookiecutter.package }}.app.cli_help import HelpConfig, HelpSystem, Page
 def config(*commands: str) -> HelpConfig:
     return HelpConfig(
         program="{{ cookiecutter.package_name }}",
-        default_command="foobar",
+        default_command=commands[0],
         operational_commands=commands,
     )
 
@@ -17,8 +17,10 @@ def config(*commands: str) -> HelpConfig:
 def test_single_command_is_an_implicit_default() -> None:
     help_system = HelpSystem(app, config(*COMMANDS))
 
-    assert help_system.normalize(["--dry-run"]) == ["foobar", "--dry-run"]
-    assert help_system.normalize(["foobar", "--dry-run"]) == ["foobar", "--dry-run"]
+    default_command = COMMANDS[0]
+
+    assert help_system.normalize(["--dry-run"]) == [default_command, "--dry-run"]
+    assert help_system.normalize([default_command, "--dry-run"]) == [default_command, "--dry-run"]
 
 
 def test_multiple_commands_disable_implicit_dispatch() -> None:
@@ -49,7 +51,7 @@ def test_multiple_commands_render_purpose_groups_before_globals() -> None:
 
 
 def test_forced_color_uses_stake_palette() -> None:
-    output = HelpSystem(app, config(*COMMANDS))._render(["foobar"], detailed=False, color=True)
+    output = HelpSystem(app, config(*COMMANDS))._render([COMMANDS[0]], detailed=False, color=True)
 
     assert "\x1b[" in output
     assert "\x1b[1;32m" in output
