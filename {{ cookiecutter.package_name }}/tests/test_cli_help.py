@@ -15,18 +15,33 @@ def config(*commands: str) -> HelpConfig:
 
 
 def test_single_command_is_an_implicit_default() -> None:
-    help_system = HelpSystem(app, config(*COMMANDS))
+    single = cyclopts.App(name="example", help="Example command.", help_format="plaintext")
 
-    default_command = COMMANDS[0]
+    @single.command(group=cyclopts.Group("Core", sort_key=10))
+    def run() -> None:
+        """Run the example operation."""
 
-    assert help_system.normalize(["--dry-run"]) == [default_command, "--dry-run"]
-    assert help_system.normalize([default_command, "--dry-run"]) == [default_command, "--dry-run"]
+    help_system = HelpSystem(single, config("run"))
+
+    assert help_system.normalize(["--dry-run"]) == ["run", "--dry-run"]
+    assert help_system.normalize(["run", "--dry-run"]) == ["run", "--dry-run"]
 
 
 def test_multiple_commands_disable_implicit_dispatch() -> None:
-    expanded = config("foobar", "second")
+    multi = cyclopts.App(name="example", help="Example commands.", help_format="plaintext")
 
-    assert not expanded.has_hidden_default
+    @multi.command(group=cyclopts.Group("Core", sort_key=10))
+    def run() -> None:
+        """Run the example operation."""
+
+    @multi.command(group=cyclopts.Group("Inspection", sort_key=20))
+    def inspect() -> None:
+        """Inspect the example operation."""
+
+    help_system = HelpSystem(multi, config("run", "inspect"))
+
+    assert not help_system.config.has_hidden_default
+    assert help_system.normalize(["--dry-run"]) == ["--dry-run"]
 
 
 def test_multiple_commands_render_purpose_groups_before_globals() -> None:
