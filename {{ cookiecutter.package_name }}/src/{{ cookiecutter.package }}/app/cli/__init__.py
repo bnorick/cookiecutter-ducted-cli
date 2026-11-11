@@ -63,55 +63,11 @@ class GlobalArgs:
     ] = False
 
 
-def app_launcher(
-    *tokens: Annotated[str, cyclopts.Parameter(show=False, allow_leading_hyphen=True)],
-    global_args: Annotated[GlobalArgs, cyclopts.Parameter(name="*")] | None = None,
-) -> None:
-    """Meta-command launcher - runs before every subcommand."""
-    # Apply global flags to the runtime context
-    context = get_context()
-    if global_args is not None:
-        context.config_dir = global_args.config_dir
-        context.verbosity = global_args.verbose
-        context.quiet = global_args.quiet
-        context.dry_run = global_args.dry_run
-
-    # Also respect environment variable for config dir
-    env_config_dir = os.getenv("{{ cookiecutter.env_var_prefix }}_CONFIG_DIR")
-    if env_config_dir:
-        context.config_dir = pathlib.Path(env_config_dir).expanduser().resolve()
-
-    # Parse and dispatch
-    command, bound, ignored = app.parse_args(tokens)
-    log.debug(f"{command=} {bound=} {ignored=}")
-    log.debug(f"{context=}")
-    command(*bound.args, **bound.kwargs)
-
-
 # ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
 
-app = cyclopts.App(
-    help="{{ cookiecutter.project_short_description }}",
-    help_format="plaintext",
-    default_parameter=cyclopts.Parameter(negative=(), consume_multiple=True),
-)
-GLOBAL_OPTIONS = cyclopts.Group("Global options", sort_key=100)
-app["--help"].group = GLOBAL_OPTIONS
-app["--version"].group = GLOBAL_OPTIONS
-
-# Lazy command registration
 COMMANDS = ("foobar",)
-CORE_COMMANDS = cyclopts.Group("Core", sort_key=10)
-for _cmd in COMMANDS:
-    app.command(
-        f"{{ cookiecutter.package }}.app.cli.{_cmd}:{_cmd}",
-        group=CORE_COMMANDS,
-        default_parameter=cyclopts.Parameter(group=cyclopts.Group("Options", sort_key=0)),
-    )
-    app[_cmd]["--help"].group = GLOBAL_OPTIONS
-    app[_cmd]["--version"].group = GLOBAL_OPTIONS
 
 
 def help_command(
@@ -140,18 +96,85 @@ def help_command(
     del command, no_pager
 
 
-app.command(help_command, name="help", group=cyclopts.Group("General", sort_key=90))
-app["help"]["--help"].group = GLOBAL_OPTIONS
-app["help"]["--version"].group = GLOBAL_OPTIONS
+def create_app() -> cyclopts.App:
+    """Build an independent parser with the production command registrations."""
+    app = cyclopts.App(
+        help="{{ cookiecutter.project_short_description }}",
+        help_format="plaintext",
+        default_parameter=cyclopts.Parameter(negative=(), consume_multiple=True),
+    )
+    global_options = cyclopts.Group("Global options", sort_key=100)
+    app["--help"].group = global_options
+    app["--version"].group = global_options
 
-# Meta-default launcher
-app.meta.default(app_launcher)
-app.meta.group_parameters = GLOBAL_OPTIONS
+    # Lazy command registration
+    core_commands = cyclopts.Group("Core", sort_key=10)
+    for _cmd in COMMANDS:
+        app.command(
+            f"{{ cookiecutter.package }}.app.cli.{_cmd}:{_cmd}",
+            group=core_commands,
+            default_parameter=cyclopts.Parameter(group=cyclopts.Group("Options", sort_key=0)),
+        )
+        app[_cmd]["--help"].group = global_options
+        app[_cmd]["--version"].group = global_options
+
+    def app_launcher(
+        *tokens: Annotated[str, cyclopts.Parameter(show=False, allow_leading_hyphen=True)],
+        global_args: Annotated[GlobalArgs, cyclopts.Parameter(name="*")] | None = None,
+    ) -> None:
+        """Meta-command launcher - runs before every subcommand."""
+        # Apply global flags to the runtime context
+        context = get_context()
+        if global_args is not None:
+            context.config_dir = global_args.config_dir
+            context.verbosity = global_args.verbose
+            context.quiet = global_args.quiet
+            context.dry_run = global_args.dry_run
+
+        # Also respect environment variable for config dir
+        env_config_dir = os.getenv("{{ cookiecutter.env_var_prefix }}_CONFIG_DIR")
+        if env_config_dir:
+            context.config_dir = pathlib.Path(env_config_dir).expanduser().resolve()
+
+        # Parse and dispatch
+        command, bound, ignored = app.parse_args(tokens)
+        log.debug(f"{command=} {bound=} {ignored=}")
+        log.debug(f"{context=}")
+        command(*bound.args, **bound.kwargs)
+
+    app.command(help_command, name="help", group=cyclopts.Group("General", sort_key=90))
+    app["help"]["--help"].group = global_options
+    app["help"]["--version"].group = global_options
+
+    # Meta-default launcher
+    app.meta.default(app_launcher)
+    app.meta.group_parameters = global_options
+
+    return app
+
+
+app = create_app()
 
 
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
+
+def dispatch(argv: list[str], *, application: cyclopts.App | None = None) -> None:
+    """Route help or execute a command through the production parser."""
+    application = app if application is None else application
+    help_system = HelpSystem(
+        application,
+        HelpConfig(
+            program="{{ cookiecutter.package_name }}",
+            default_command=COMMANDS[0],
+            operational_commands=COMMANDS,
+        ),
+    )
+    args = help_system.run(argv)
+    if args is not None:
+        application.meta(args)
 
 
 def run() -> None:
@@ -161,14 +184,4 @@ def run() -> None:
     install_exception_hook()
     install_signal_handler()
     console_init(debug=debug)
-    help_system = HelpSystem(
-        app,
-        HelpConfig(
-            program="{{ cookiecutter.package_name }}",
-            default_command=COMMANDS[0],
-            operational_commands=COMMANDS,
-        ),
-    )
-    args = help_system.run(sys.argv[1:])
-    if args is not None:
-        app.meta(args)
+    dispatch(sys.argv[1:])

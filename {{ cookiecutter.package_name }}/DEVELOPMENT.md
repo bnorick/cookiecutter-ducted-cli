@@ -114,4 +114,33 @@ Help tests should cover:
 - the transition to grouped multi-command help, including disabled bare
   dispatch.
 
+### Fast help and parser tests
+
+Use `tests/cli_runner.py` for exhaustive command help, routing, and argument
+validation. It calls production `dispatch()` with a fresh `create_app()` parser
+for each invocation, captures both streams and Python exit semantics, and
+restores environment, logging, arguments, signal handlers, exception hooks,
+and layout-specific runtime state. Test real generated output and parser errors,
+not mocked help strings. Reordered calls and deliberate state pollution have
+their own regression tests.
+
+Keep a small process-boundary suite in `tests/test_cli_process.py` for the real
+entry point, exact exit/stream parity, and pseudo-terminal pager/color behavior.
+Commands that shell out keep subprocess tests because their inherited file
+descriptors are part of the behavior being tested.
+{% if cookiecutter.layout == "single-file" %}
+The copied-executable smoke test verifies that the script runs without project
+files. Support modules under `tests/` must never become runtime imports.
+{% else %}
+Both the module and installed console entry points have process smoke coverage.
+{% endif %}
+The complete check runs both tiers; process tests are not an optional slow gate.
+Exhaustive assertions no longer each require a separate cold Python process.
+Future expensive fixtures, such as clusters or external services, should be
+explicit dependencies of execution tests rather than autouse fixtures for help.
+
+```bash
+./tasks test tests/test_cli.py tests/test_cli_help.py tests/test_cli_runner.py --durations=10
+```
+
 Run `./tasks check` before handoff.

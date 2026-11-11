@@ -1,21 +1,10 @@
 from __future__ import annotations
 
-import importlib.machinery
-import importlib.util
 import io
-import pathlib
 import subprocess
-import sys
 
 import pytest
-
-SCRIPT = pathlib.Path(__file__).parents[1] / "{{ cookiecutter.package_name }}"
-LOADER = importlib.machinery.SourceFileLoader("{{ cookiecutter.package }}_script", str(SCRIPT))
-SPEC = importlib.util.spec_from_loader(LOADER.name, LOADER)
-assert SPEC is not None
-tool = importlib.util.module_from_spec(SPEC)
-sys.modules[SPEC.name] = tool
-LOADER.exec_module(tool)
+from cli_runner import SCRIPT, run_cli, tool
 
 
 def test_script_is_executable() -> None:
@@ -54,18 +43,8 @@ def test_console_input_passes_colored_prompt_to_readline(
 
 def test_concise_and_detailed_help() -> None:
     for command in tool.COMMANDS:
-        concise = subprocess.run(
-            [str(SCRIPT), command, "--help"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        detailed = subprocess.run(
-            [str(SCRIPT), "help", command, "--no-pager"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        concise = run_cli(command, "--help")
+        detailed = run_cli("help", command, "--no-pager")
 
         assert concise.returncode == 0
         assert detailed.returncode == 0
