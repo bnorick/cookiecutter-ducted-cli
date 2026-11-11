@@ -43,7 +43,7 @@ import shutil
 import subprocess
 import tempfile
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator, Iterator
 from typing import Any
 
 import duct
@@ -174,7 +174,7 @@ def pipe(*commands: duct.Expression | str) -> duct.Expression:
 
 
 @contextlib.contextmanager
-def cd(path: str | os.PathLike[str]) -> Iterator[None]:
+def cd(path: str | os.PathLike[str]) -> Generator[None, None, None]:
     """Change directory context manager.
 
     Args:

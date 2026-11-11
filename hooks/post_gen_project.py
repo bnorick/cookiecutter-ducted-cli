@@ -79,8 +79,6 @@ if __name__ == "__main__":
     if single_file:
         delete(relpath="src")
         delete(relpath="pyproject.toml")
-        delete(relpath="tests/test_cli.py")
-        delete(relpath="tests/test_cli_help.py")
         delete(relpath="tests/test_config.py")
         delete(relpath="tests/test_console.py")
         delete(relpath="tests/test_context.py")

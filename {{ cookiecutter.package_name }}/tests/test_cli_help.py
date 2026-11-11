@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import cyclopts
+{% if cookiecutter.layout == "single-file" -%}
+from cli_runner import tool
 
+COMMANDS, app = tool.COMMANDS, tool.app
+HelpConfig, HelpSystem, Pager = tool.HelpConfig, tool.HelpSystem, tool.Pager
+{% else %}
 from {{ cookiecutter.package }}.app.cli import COMMANDS, app
 from {{ cookiecutter.package }}.app.cli_help import HelpConfig, HelpSystem, Pager
+{% endif %}
 
-
-def config(*commands: str) -> HelpConfig:
+def config(*commands: str){% if cookiecutter.layout == "package" %} -> HelpConfig{% endif %}:
     return HelpConfig(
         program="{{ cookiecutter.package_name }}",
         default_command=commands[0],

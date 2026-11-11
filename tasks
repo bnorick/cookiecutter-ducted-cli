@@ -219,7 +219,7 @@ refresh-diff mode='filtered' work=work_dir recipe=recipe_dir diff_target=diff_ta
               return True
           if path == pathlib.Path("pyproject.toml"):
               return True
-          if path.parts and path.parts[0] == "tests" and path.name != "test_script.py":
+          if path.parts and path.parts[0] == "tests" and path.name in {"test_config.py", "test_console.py", "test_context.py"}:
               return True
       if any(part in excluded_names for part in path.parts):
           return True

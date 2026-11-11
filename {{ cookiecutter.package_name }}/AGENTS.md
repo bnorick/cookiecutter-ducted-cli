@@ -47,4 +47,10 @@ command is designed for piping; diagnostics belong on stderr.
 - Add or update help regression tests whenever commands, parameters, groups,
   aliases, defaults, or long-form behavior change.
 
+- Use the isolated in-process runner for exhaustive help and parser tests;
+  retain a small subprocess suite for entry points, real terminal/pager behavior,
+  and external command execution. Keep all tiers in the complete check.
+- Create fresh parsers per invocation and restore runtime state between calls.
+  Expensive external-service fixtures must be opt-in for tests that need them.
+
 See `DEVELOPMENT.md` for the complete help contract and writing examples.

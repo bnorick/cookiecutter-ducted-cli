@@ -3,7 +3,7 @@
 
 # /// script
 # dependencies = [
-#   "cyclopts>=4.11.0",
+#   "cyclopts>=5.4.0",
 #   "duct>=1.0.1",
 #   "rich>=15.0.0",
 # ]
@@ -144,23 +144,7 @@ def foobar(
         run_command("echo", f"{i} foobar")
 
 
-app = cyclopts.App(
-    help="{{ cookiecutter.project_short_description }}",
-    help_format="plaintext",
-    default_parameter=cyclopts.Parameter(negative=(), consume_multiple=True),
-)
-GLOBAL_OPTIONS = cyclopts.Group("Global options", sort_key=100)
-app["--help"].group = GLOBAL_OPTIONS
-app["--version"].group = GLOBAL_OPTIONS
 COMMANDS = ("foobar",)
-CORE_COMMANDS = cyclopts.Group("Core", sort_key=10)
-app.command(
-    foobar,
-    group=CORE_COMMANDS,
-    default_parameter=cyclopts.Parameter(group=cyclopts.Group("Options", sort_key=0)),
-)
-app["foobar"]["--help"].group = GLOBAL_OPTIONS
-app["foobar"]["--version"].group = GLOBAL_OPTIONS
 
 
 def help_command(
@@ -180,41 +164,69 @@ def help_command(
     del command, no_pager
 
 
-app.command(help_command, name="help", group=cyclopts.Group("General", sort_key=90))
-app["help"]["--help"].group = GLOBAL_OPTIONS
-app["help"]["--version"].group = GLOBAL_OPTIONS
+def create_app() -> cyclopts.App:
+    """Build an independent parser with the production command registrations."""
+    app = cyclopts.App(
+        help="{{ cookiecutter.project_short_description }}",
+        help_format="plaintext",
+        default_parameter=cyclopts.Parameter(negative=(), consume_multiple=True),
+    )
+    global_options = cyclopts.Group("Global options", sort_key=100)
+    app["--help"].group = global_options
+    app["--version"].group = global_options
+    core_commands = cyclopts.Group("Core", sort_key=10)
+    app.command(
+        foobar,
+        group=core_commands,
+        default_parameter=cyclopts.Parameter(group=cyclopts.Group("Options", sort_key=0)),
+    )
+    app["foobar"]["--help"].group = global_options
+    app["foobar"]["--version"].group = global_options
+
+    app.command(help_command, name="help", group=cyclopts.Group("General", sort_key=90))
+    app["help"]["--help"].group = global_options
+    app["help"]["--version"].group = global_options
+
+    def app_launcher(
+        *tokens: Annotated[str, cyclopts.Parameter(show=False, allow_leading_hyphen=True)],
+        global_args: Annotated[GlobalArgs, cyclopts.Parameter(name="*")] | None = None,
+    ) -> None:
+        """Apply global flags to the run policy, then dispatch the command."""
+        global _VERBOSITY, _DRY_RUN
+        if global_args is not None:
+            _VERBOSITY = global_args.verbose
+            _DRY_RUN = global_args.dry_run
+        command, bound, _ignored = app.parse_args(tokens)
+        command(*bound.args, **bound.kwargs)
+
+    app.meta.default(app_launcher)
+    app.meta.group_parameters = global_options
+
+    return app
 
 
-def app_launcher(
-    *tokens: Annotated[str, cyclopts.Parameter(show=False, allow_leading_hyphen=True)],
-    global_args: Annotated[GlobalArgs, cyclopts.Parameter(name="*")] | None = None,
-) -> None:
-    """Apply global flags to the run policy, then dispatch the command."""
-    global _VERBOSITY, _DRY_RUN
-    if global_args is not None:
-        _VERBOSITY = global_args.verbose
-        _DRY_RUN = global_args.dry_run
-    command, bound, _ignored = app.parse_args(tokens)
-    command(*bound.args, **bound.kwargs)
+app = create_app()
 
 
-app.meta.default(app_launcher)
-app.meta.group_parameters = GLOBAL_OPTIONS
-
-
-def main(argv: Iterable[str] | None = None) -> None:
-    """Run the command-line application."""
+def dispatch(argv: list[str], *, application: cyclopts.App | None = None) -> None:
+    """Route help or execute a command through the production parser."""
+    application = app if application is None else application
     help_system = HelpSystem(
-        app,
+        application,
         HelpConfig(
             program="{{ cookiecutter.package_name }}",
             default_command=COMMANDS[0],
             operational_commands=COMMANDS,
         ),
     )
-    args = help_system.run(sys.argv[1:] if argv is None else argv)
+    args = help_system.run(argv)
     if args is not None:
-        app.meta(args)
+        application.meta(args)
+
+
+def main(argv: Iterable[str] | None = None) -> None:
+    """Run the command-line application."""
+    dispatch(list(sys.argv[1:] if argv is None else argv))
 
 
 if __name__ == "__main__":
